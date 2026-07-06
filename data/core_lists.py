@@ -1,0 +1,5 @@
+CORE_ETFS = ["TQQQ", "SQQQ", "SOXL", "SOXS", "TECL", "SPXL"]
+
+CORE_AI = ["SPCE", "SPCX", "RKLB", "ASTS", "LUNR", "RDW"]
+
+CORE_SPACE = ["FLY", "WEAV", "ALAB", "TEM", "RDDT", "CBRS"]
