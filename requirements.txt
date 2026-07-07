@@ -5,4 +5,5 @@ numpy
 scikit-learn
 plotly
 scikit-learn
+pandas_ta
 
