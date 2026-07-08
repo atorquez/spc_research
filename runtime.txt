@@ -1,7 +1,1 @@
-streamlit
-yfinance
-pandas
-numpy
-scikit-learn
-plotly
-pandas_ta
+python-3.12
