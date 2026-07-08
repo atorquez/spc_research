@@ -1,5 +1,7 @@
-<<<<<<< HEAD
-python-3.12
-=======
-python-3.12
->>>>>>> 48023b81e14d851d363259d85689f76ff4f990ac
+streamlit
+yfinance
+pandas
+numpy
+scikit-learn
+plotly
+pandas_ta
