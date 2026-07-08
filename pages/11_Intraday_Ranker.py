@@ -2,20 +2,19 @@ import streamlit as st
 from analysis.intraday_ranker import rank_universe, fetch_daily
 from utils.data_fetch import load_universe
 from data.core_lists import CORE_ETFS, CORE_AI, CORE_SPACE
+import pandas_ta as ta
+st.write("pandas_ta loaded successfully")
+
 
 st.set_page_config(layout="wide")
 st.title("📈 Intraday Readiness Ranker")
-
-
-#st.text(load_universe())
-
 
 # ---------------------------------------------------------
 # PRICE FILTERS
 # ---------------------------------------------------------
 st.markdown("### 🔍 Price Filter")
 min_price = st.number_input("Minimum Price", value=5.0)
-max_price = st.number_input("Maximum Price", value=40.0)
+max_price = st.number_input("Maximum Price", value=100.0)
 
 # ---------------------------------------------------------
 # OPTIONAL CLUSTERS
@@ -29,7 +28,7 @@ include_space = st.checkbox("Include Space Exploration Cluster", value=True)
 CORE_ETFS = ["TQQQ", "SQQQ", "SOXL", "SOXS", "TECL", "SPXL"]
 
 # AI Related (bypass filters)
-CORE_AI = ["SPCE", "SPCX", "RKLB", "ASTS", "LUNR", "RDW","PL"]
+CORE_AI = ["SPCE", "SPCX", "RKLB", "ASTS", "LUNR", "RDW", "PL"]
 
 # Space Exploration (bypass filters)
 CORE_SPACE = ["FLY", "WEAV", "ALAB", "TEM", "RDDT", "CBRS"]
@@ -73,28 +72,51 @@ if st.button("Run Intraday Ranker", key="run_intraday_ranker_btn_page11"):
     # Merge filtered universe + always-include universe
     final_universe = list(set(filtered + always_include))
 
-    # Debug print to confirm RDW is included
-    print("Final Universe:", final_universe)
+    # Debug print to confirm universe
+    st.write("Final Universe Size:", len(final_universe))
+    st.write("Sample of Final Universe:", final_universe[:15])
 
     # Run ranker
     ranking = rank_universe(final_universe)
-    
+    st.write("Ranking columns:", ranking.columns.tolist())
+
+    # --- PCA DIAGNOSTIC BLOCK ---
+    if "PCA1" in ranking.columns:
+        pca1_null_ratio = ranking["PCA1"].isnull().mean()
+        st.markdown("#### 🔍 PCA1 Diagnostic")
+        st.write("Fraction of tickers with PCA1 = None:", pca1_null_ratio)
+
+        # If PCA1 is mostly None, inspect one sample ticker's raw data
+        if pca1_null_ratio > 0.5 and len(ranking) > 0:
+            sample_ticker = ranking["Ticker"].iloc[0]
+            st.write(f"Inspecting raw data for sample ticker: {sample_ticker}")
+            sample_df = fetch_daily(sample_ticker)
+
+            if sample_df is not None and len(sample_df) > 0:
+                st.write("Last row of sample_df:")
+                st.write(sample_df.iloc[-1])
+
+                st.write("Missing fields in last row (True = missing):")
+                st.write(sample_df.iloc[-1].isnull())
+            else:
+                st.write("Sample ticker has no data returned by fetch_daily().")
+    else:
+        st.markdown("#### 🔍 PCA1 Diagnostic")
+        st.write("Column 'PCA1' not found in ranking DataFrame.")
+
+    # Split into primary vs exploration universes
     primary_df = ranking[
-    ~ranking["Ticker"].isin(CORE_ETFS + CORE_AI + CORE_SPACE)
+        ~ranking["Ticker"].isin(CORE_ETFS + CORE_AI + CORE_SPACE)
     ]
     exploration_df = ranking[
-    ranking["Ticker"].isin(CORE_ETFS + CORE_AI + CORE_SPACE)
+        ranking["Ticker"].isin(CORE_ETFS + CORE_AI + CORE_SPACE)
     ]
-       
+
     st.subheader("🏆 Primary Universe — SP500 & NASDAQ100")
     st.dataframe(primary_df.head(30), hide_index=True, width="stretch")
 
     st.subheader("🚀 Exploration Universe — High-Opportunity Tickers")
     st.dataframe(exploration_df, hide_index=True, width="stretch")
-
-    #st.dataframe(ranking)
-    #print(ranking)
-
 
 # ---------------------------------------------------------
 # PARAMETER DEFINITIONS

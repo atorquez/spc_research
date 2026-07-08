@@ -26,11 +26,13 @@ def fetch_daily(ticker):
     if df is None or df.empty:
         return None
 
-    # FIX: Normalize MultiIndex columns if present
+    # Normalize MultiIndex columns if present
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    df = df.dropna()
+    # Drop incomplete rows
+    df = df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
     return df
 
 
@@ -40,7 +42,7 @@ def fetch_daily(ticker):
 def compute_extra_indicators(df):
     df = df.copy()
 
-    # RSI
+    # RSI (manual)
     delta = df["Close"].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
@@ -54,7 +56,7 @@ def compute_extra_indicators(df):
     df["STD20"] = df["Close"].rolling(20).std()
     df["BB_Width"] = (df["STD20"] * 2) / df["SMA20"]
 
-    # Rate of Change (Momentum)
+    # Rate of Change
     df["ROC"] = df["Close"].pct_change(5)
 
     # Stochastic %K
@@ -64,6 +66,9 @@ def compute_extra_indicators(df):
 
     # Volume Delta
     df["VolDelta"] = df["Volume"].pct_change()
+
+    # ⭐ FIX: Drop NaNs AFTER indicator calculations
+    df = df.dropna()
 
     return df
 
@@ -76,7 +81,8 @@ def compute_pca_components(df):
 
     pca_features = df[["RSI", "BB_Width", "ROC", "StochK", "VolDelta"]].dropna()
 
-    if len(pca_features) < 20:
+    # ⭐ FIX: Reduce minimum requirement from 20 → 10
+    if len(pca_features) < 10:
         return None, None, None
 
     pca = PCA(n_components=3)
@@ -93,7 +99,7 @@ def compute_pca_components(df):
 def calculate_indicators(df):
     df = df.copy()
 
-    # FIX: Normalize MultiIndex columns if present
+    # Normalize MultiIndex columns if present
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
@@ -211,7 +217,6 @@ def rank_universe(symbols):
         else:
             distance5 = None
 
-
         # PCA Components
         pca1, pca2, pca3 = compute_pca_components(df)
 
@@ -227,6 +232,7 @@ def rank_universe(symbols):
             "BuyZone10": buyzone10,
             "BuyZone5": buyzone5,
             "BuyZone5_Distance%": round(distance5, 2) if distance5 is not None else None,
+            "PCA1": pca1,
             "PCA2": pca2,
             "PCA3": pca3
         })
@@ -238,6 +244,7 @@ def rank_universe(symbols):
     )
 
     return ranking
+
 
 
 
