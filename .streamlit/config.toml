@@ -1,6 +1,9 @@
 [theme]
-primaryColor="#F5C542"          # gold accent
-backgroundColor="#0E1117"       # dark navy
+primaryColor="#F5C542"
+backgroundColor="#0E1117"
 secondaryBackgroundColor="#161B22"
 textColor="#FFFFFF"
 font="sans serif"
+
+[global]
+pythonVersion = "3.12"
