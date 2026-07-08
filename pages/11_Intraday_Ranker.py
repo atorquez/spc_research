@@ -2,12 +2,12 @@ import streamlit as st
 from analysis.intraday_ranker import rank_universe, fetch_daily
 from utils.data_fetch import load_universe
 from data.core_lists import CORE_ETFS, CORE_AI, CORE_SPACE
-import pandas_ta as ta
-st.write("pandas_ta loaded successfully")
 
+st.caption("SPC Version: 2026-07-08 v1")
 
 st.set_page_config(layout="wide")
 st.title("📈 Intraday Readiness Ranker")
+
 
 # ---------------------------------------------------------
 # PRICE FILTERS
