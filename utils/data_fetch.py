@@ -53,7 +53,7 @@ def get_last_10_closes(symbol: str):
 # LOAD UNIVERSE (SP500 + NASDAQ100 + OTHER)
 # ---------------------------------------------------------
 from data.sp500_list import sp500
-from data.nasdaq100_list import nasdaq100
+from data.nasdaq500_list import nasdaq500
 from data.other_list import OTHER
 
 def load_universe():
@@ -64,5 +64,5 @@ def load_universe():
     - NASDAQ100
     - Custom exploration tickers (OTHER)
     """
-    return sorted(list(set(sp500 + nasdaq100 + OTHER)))
+    return sorted(list(set(sp500 + nasdaq500 + OTHER)))
 

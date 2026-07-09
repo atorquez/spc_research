@@ -1,10 +1,15 @@
-from analysis.under_control_explorer import intraday_buy_zone
-from data.core_lists import CORE_ETFS, CORE_AI, CORE_SPACE
+# ============================================================
+# INTRADAY RANKER — BUYZONE + PCA + VMAS + BUY SIGNAL
+# ============================================================
 
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+from analysis.under_control_explorer import intraday_buy_zone
+from data.core_lists import CORE_ETFS, CORE_AI, CORE_SPACE
 
 
 # ---------------------------------------------------------
@@ -26,13 +31,10 @@ def fetch_daily(ticker):
     if df is None or df.empty:
         return None
 
-    # Normalize MultiIndex columns if present
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # Drop incomplete rows
     df = df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
-
     return df
 
 
@@ -42,7 +44,6 @@ def fetch_daily(ticker):
 def compute_extra_indicators(df):
     df = df.copy()
 
-    # RSI (manual)
     delta = df["Close"].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
@@ -51,46 +52,54 @@ def compute_extra_indicators(df):
     rs = avg_gain / avg_loss
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    # Bollinger Band Width
     df["SMA20"] = df["Close"].rolling(20).mean()
     df["STD20"] = df["Close"].rolling(20).std()
     df["BB_Width"] = (df["STD20"] * 2) / df["SMA20"]
 
-    # Rate of Change
-    df["ROC"] = df["Close"].pct_change(5)
+    df["ROC"] = df["Close"].pct_change(10)
 
-    # Stochastic %K
     low_min = df["Low"].rolling(14).min()
     high_max = df["High"].rolling(14).max()
     df["StochK"] = (df["Close"] - low_min) / (high_max - low_min)
 
-    # Volume Delta
-    df["VolDelta"] = df["Volume"].pct_change()
+    df["EMA_Curve"] = df["Close"].ewm(span=9).mean() - df["Close"].ewm(span=20).mean()
 
-    # ⭐ FIX: Drop NaNs AFTER indicator calculations
+    df["VolDelta"] = df["Volume"].diff()
+
+    df["VWAP"] = (df["Volume"] * df["Close"]).cumsum() / df["Volume"].cumsum()
+    df["VWAP_Dist"] = df["Close"] - df["VWAP"]
+
     df = df.dropna()
-
     return df
 
 
 # ---------------------------------------------------------
-# PCA COMPONENTS
+# PCA COMPONENTS (WITH STANDARDSCALER)
 # ---------------------------------------------------------
 def compute_pca_components(df):
     df = compute_extra_indicators(df)
 
-    pca_features = df[["RSI", "BB_Width", "ROC", "StochK", "VolDelta"]].dropna()
+    pca_features = df[[
+        "RSI",
+        "BB_Width",
+        "ROC",
+        "StochK",
+        "EMA_Curve",
+        "VolDelta",
+        "VWAP_Dist"
+    ]].dropna()
 
-    # ⭐ FIX: Reduce minimum requirement from 20 → 10
     if len(pca_features) < 10:
         return None, None, None
 
-    pca = PCA(n_components=3)
-    components = pca.fit_transform(pca_features)
+    scaler = StandardScaler()
+    scaled = scaler.fit_transform(pca_features)
 
-    # Today's PCA values (last row)
+    pca = PCA(n_components=3)
+    components = pca.fit_transform(scaled)
+
     pca1, pca2, pca3 = components[-1]
-    return pca1, pca2, pca3
+    return float(pca1), float(pca2), float(pca3)
 
 
 # ---------------------------------------------------------
@@ -99,16 +108,13 @@ def compute_pca_components(df):
 def calculate_indicators(df):
     df = df.copy()
 
-    # Normalize MultiIndex columns if present
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # EMAs
     df["EMA9"] = df["Close"].ewm(span=9).mean()
     df["EMA20"] = df["Close"].ewm(span=20).mean()
     df["EMA50"] = df["Close"].ewm(span=50).mean()
 
-    # ATR%
     df["H-L"] = df["High"] - df["Low"]
     df["H-PC"] = (df["High"] - df["Close"].shift(1)).abs()
     df["L-PC"] = (df["Low"] - df["Close"].shift(1)).abs()
@@ -116,14 +122,11 @@ def calculate_indicators(df):
     df["ATR"] = df["TR"].rolling(14).mean()
     df["ATR%"] = (df["ATR"] / df["Close"]) * 100
 
-    # RVOL
     df["RVOL"] = df["Volume"] / df["Volume"].rolling(20).mean()
-
-    # Gap%
     df["Gap%"] = ((df["Open"] - df["Close"].shift(1)) / df["Close"].shift(1)) * 100
 
-    # Trend
     last = df.iloc[-1]
+
     if last["EMA9"] > last["EMA20"] > last["EMA50"]:
         trend = "UP"
     elif last["EMA9"] < last["EMA20"] < last["EMA50"]:
@@ -149,32 +152,84 @@ def calculate_indicators(df):
 def score_stock(ind):
     score = 0
 
-    # Trend alignment
     if ind["EMA9"] > ind["EMA20"]:
         score += 10
     if ind["EMA20"] > ind["EMA50"]:
         score += 10
 
-    # Volume
     if ind["RVOL"] > 2:
         score += 20
 
-    # Gap
     if 2 <= ind["Gap%"] <= 5:
         score += 10
 
-    # ATR%
     if ind["ATR%"] > 5:
         score += 15
 
-    # Inside daily resistance
     score += 5
-
     return score
 
 
 # ---------------------------------------------------------
-# RANK UNIVERSE (patched with PCA + BuyZones)
+# VMAS
+# ---------------------------------------------------------
+def compute_vmas(price, buyzone10, pca1):
+    if price is None or buyzone10 is None or pca1 is None:
+        return None
+
+    dist = (price - buyzone10) / buyzone10
+    return (1 - dist) * pca1
+
+
+# ---------------------------------------------------------
+# BUYZONE HEATMAP
+# ---------------------------------------------------------
+def buyzone_heatmap(price, bz10, bz5, dist10):
+    if price is None or bz10 is None or bz5 is None:
+        return "Unknown"
+
+    if price <= bz5:
+        return "Inside_5"
+
+    if price <= bz10:
+        return "Inside_10"
+
+    if dist10 is not None and dist10 < 3:
+        return "Near_Value"
+
+    if dist10 is not None and dist10 > 10:
+        return "Extended"
+
+    return "Normal"
+
+
+# ---------------------------------------------------------
+# BUY SIGNAL ENGINE
+# ---------------------------------------------------------
+def compute_buy_signal(price, buyzone10, buyzone5, dist10, pca1, trend):
+    if price is None or buyzone10 is None or buyzone5 is None:
+        return "Avoid"
+
+    if dist10 is not None and dist10 > 10:
+        return "Extended"
+
+    if pca1 is None or pca1 < -1.0:
+        return "Avoid"
+
+    if price <= buyzone5 and pca1 > 0 and trend == "UP":
+        return "Strong Buy Zone"
+
+    if price <= buyzone10 and pca1 > 0:
+        return "Buy Zone"
+
+    if dist10 is not None and dist10 < 3 and pca1 > -0.5:
+        return "Neutral"
+
+    return "Avoid"
+
+
+# ---------------------------------------------------------
+# RANK UNIVERSE
 # ---------------------------------------------------------
 def rank_universe(symbols):
     results = []
@@ -182,43 +237,52 @@ def rank_universe(symbols):
     for ticker in symbols:
         df = fetch_daily(ticker)
 
-        # CORE tickers bypass the 50-day requirement
-        if ticker in CORE_ETFS or ticker in CORE_AI or ticker in CORE_SPACE:
-            if df is None or len(df) < 50:
-                results.append({
-                    "Ticker": ticker,
-                    "Name": get_company_name(ticker),
-                    "Score": 5,
-                    "Price": None,
-                    "ATR%": None,
-                    "RVOL": None,
-                    "Gap%": None,
-                    "Trend": "UNKNOWN",
-                    "BuyZone10": None,
-                    "BuyZone5": None,
-                    "PCA1": None,
-                    "PCA2": None,
-                    "PCA3": None
-                })
-                continue
-
-        # Normal tickers must have valid data
         if df is None or len(df) < 50:
+            results.append({
+                "Ticker": ticker,
+                "Name": get_company_name(ticker),
+                "Score": None,
+                "Price": None,
+                "ATR%": None,
+                "RVOL": None,
+                "Gap%": None,
+                "Trend": "UNKNOWN",
+                "BuyZone10": None,
+                "BuyZone5": None,
+                "BuyZone10_Distance%": None,
+                "BuyZone5_Distance%": None,
+                "PCA1": None,
+                "PCA2": None,
+                "PCA3": None,
+                "VMAS": None,
+                "BuyZone_Heatmap": "Unknown",
+                "Buy_Signal": "Avoid"
+            })
             continue
 
         ind = calculate_indicators(df)
         score = score_stock(ind)
 
-        # BuyZones
         buyzone10 = intraday_buy_zone(df, lookback=10, percentile=0.15)
         buyzone5 = intraday_buy_zone(df, lookback=5, percentile=0.15)
-        if buyzone5 is not None and ind["Close"] is not None:
-            distance5 = ((ind["Close"] - buyzone5) / ind["Close"]) * 100
-        else:
-            distance5 = None
 
-        # PCA Components
+        distance10 = ((ind["Close"] - buyzone10) / buyzone10 * 100) if buyzone10 else None
+        distance5 = ((ind["Close"] - buyzone5) / buyzone5 * 100) if buyzone5 else None
+
         pca1, pca2, pca3 = compute_pca_components(df)
+
+        vmas = compute_vmas(ind["Close"], buyzone10, pca1)
+
+        heatmap = buyzone_heatmap(ind["Close"], buyzone10, buyzone5, distance10)
+
+        buy_signal = compute_buy_signal(
+            ind["Close"],
+            buyzone10,
+            buyzone5,
+            distance10,
+            pca1,
+            ind["Trend"]
+        )
 
         results.append({
             "Ticker": ticker,
@@ -231,10 +295,14 @@ def rank_universe(symbols):
             "Trend": ind["Trend"],
             "BuyZone10": buyzone10,
             "BuyZone5": buyzone5,
-            "BuyZone5_Distance%": round(distance5, 2) if distance5 is not None else None,
+            "BuyZone10_Distance%": round(distance10, 2) if distance10 else None,
+            "BuyZone5_Distance%": round(distance5, 2) if distance5 else None,
             "PCA1": pca1,
             "PCA2": pca2,
-            "PCA3": pca3
+            "PCA3": pca3,
+            "VMAS": vmas,
+            "BuyZone_Heatmap": heatmap,
+            "Buy_Signal": buy_signal
         })
 
     ranking = (
@@ -244,6 +312,9 @@ def rank_universe(symbols):
     )
 
     return ranking
+
+
+
 
 
 

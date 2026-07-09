@@ -8,7 +8,7 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-set VIRTUAL_ENV=C:\Users\atorq\OneDrive\Desktop\spc_research\spc_env312
+set VIRTUAL_ENV=C:\Users\atorq\OneDrive\Desktop\spc_research_v2\spc_env312
 
 if not defined PROMPT set PROMPT=$P$G
 
